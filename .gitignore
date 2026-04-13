@@ -1,0 +1,39 @@
+# Environment (never commit secrets)
+.env
+.env.*
+!.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+dist/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Node / frontend build
+node_modules/
+frontend/dist/
+
+# JSON file DB and runtime logs (sensitive / machine-local)
+backend/data/*.json
+!backend/data/.gitkeep
+backend/logs/
+
+# Optional host bind mount for production data (see docker-compose.prod.yml)
+config/*.json
+!config/.gitkeep
+deploy/data/
+!deploy/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+*.log

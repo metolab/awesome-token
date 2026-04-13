@@ -1,0 +1,37 @@
+# Development: hot-reload backend + Vite dev server.
+# Usage: docker compose -f docker-compose.dev.yml up
+#
+# API is reached from the browser via same-origin /api and /auth (Vite proxy → backend).
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    env_file:
+      - .env
+    environment:
+      DATA_DIR: /app/data
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      - ./backend:/app
+    command: >
+      uvicorn app.main:app --host 0.0.0.0 --port 8000
+      --reload --reload-dir /app
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    depends_on:
+      - backend
+    ports:
+      - "5173:5173"
+    env_file:
+      - .env
+    environment:
+      VITE_BACKEND_URL: http://backend:8000
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    command: npm run dev -- --host 0.0.0.0 --port 5173

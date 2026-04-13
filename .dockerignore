@@ -1,0 +1,14 @@
+.git
+.gitignore
+**/.env
+**/.env.*
+!**/.env.example
+**/node_modules
+frontend/dist
+backend/data
+backend/logs
+**/__pycache__
+**/*.pyc
+*.md
+deploy
+config/*.json

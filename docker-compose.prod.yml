@@ -1,0 +1,16 @@
+# Production-style stack: single container (API + SPA static). Data on host: ./config -> /app/data.
+# Usage: docker compose -f docker-compose.prod.yml up -d --build
+# Ensure .env exists; copy aliyun_accounts.json etc. into ./config/ as needed.
+
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    env_file: .env
+    environment:
+      DATA_DIR: /app/data
+    volumes:
+      - ./config:/app/data
+    ports:
+      - "${PROD_HTTP_PORT:-8000}:8000"
