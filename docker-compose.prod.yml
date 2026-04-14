@@ -10,7 +10,8 @@ services:
     env_file: .env
     environment:
       DATA_DIR: /app/data
+      PORT: ${PORT:-8000}
     volumes:
       - ./config:/app/data
     ports:
-      - "${PROD_HTTP_PORT:-8000}:8000"
+      - "${PROD_HTTP_PORT:-8000}:${PORT:-8000}"
