@@ -7,6 +7,40 @@ from typing import Any
 from pydantic import BaseModel, Field, model_validator
 
 
+def _normalize_channel_models(value: Any) -> str:
+    if isinstance(value, list):
+        raw_values = [str(item) for item in value]
+    elif isinstance(value, str):
+        raw_values = value.split(",")
+    elif value is None:
+        raw_values = []
+    else:
+        raw_values = [str(value)]
+
+    deduped: dict[str, str] = {}
+    for raw in raw_values:
+        model = raw.strip()
+        if not model:
+            continue
+        key = model.casefold()
+        if key not in deduped:
+            deduped[key] = model
+
+    return ",".join(sorted(deduped.values(), key=lambda item: (item.casefold(), item)))
+
+
+def _normalize_newapi_template(template: Any) -> Any:
+    if not isinstance(template, dict):
+        return template
+    cleaned = dict(template)
+    channel = cleaned.get("channel")
+    if isinstance(channel, dict) and "models" in channel:
+        next_channel = dict(channel)
+        next_channel["models"] = _normalize_channel_models(next_channel.get("models"))
+        cleaned["channel"] = next_channel
+    return cleaned
+
+
 class BalanceSnapshot(BaseModel):
     available_amount: str | None = None
     available_cash_amount: str | None = None
@@ -77,7 +111,9 @@ class NewApiConfigRecord(BaseModel):
             }
         )
         if "template" in data:
-            return {k: v for k, v in data.items() if k not in legacy}
+            cleaned = {k: v for k, v in data.items() if k not in legacy}
+            cleaned["template"] = _normalize_newapi_template(cleaned.get("template"))
+            return cleaned
 
         name = data.get("channel_name_template", "Aliyun {username}")
         raw_ch = data.get("channel_template")
@@ -94,7 +130,7 @@ class NewApiConfigRecord(BaseModel):
                 "test_model": data.get("test_model", "qwen-turbo"),
             }
         cleaned = {k: v for k, v in data.items() if k not in legacy}
-        cleaned["template"] = {"name_template": name, "channel": ch}
+        cleaned["template"] = _normalize_newapi_template({"name_template": name, "channel": ch})
         return cleaned
 
 

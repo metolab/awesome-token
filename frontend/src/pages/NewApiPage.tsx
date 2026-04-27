@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { Eye, Loader2, RefreshCw } from "lucide-react"
+import { Eye, Loader2, Plus, RefreshCw, X } from "lucide-react"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import {
@@ -37,11 +37,15 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
+import { cn } from "@/lib/utils"
 
 const DEFAULT_NEWAPI_TEMPLATE_JSON = `{
   "name_template": "Aliyun {username}",
   "channel": {}
 }`
+const DEFAULT_NEWAPI_TEMPLATE = JSON.parse(
+  DEFAULT_NEWAPI_TEMPLATE_JSON,
+) as Record<string, unknown>
 
 function statusLabel(s: number | null | undefined) {
   if (s === 1) return <Badge>Enabled</Badge>
@@ -54,6 +58,200 @@ function formatChannelFieldValue(v: unknown): string {
   if (v === null || v === undefined) return "—"
   if (typeof v === "object") return JSON.stringify(v)
   return String(v)
+}
+
+function cloneJsonObject<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value)) as T
+}
+
+function sortUniqueModelNames(values: Iterable<string>): string[] {
+  const deduped = new Map<string, string>()
+  for (const raw of values) {
+    const value = raw.trim()
+    if (!value) continue
+    const key = value.toLocaleLowerCase()
+    if (!deduped.has(key)) deduped.set(key, value)
+  }
+  return Array.from(deduped.values()).sort((a, b) =>
+    a.localeCompare(b, undefined, { numeric: true, sensitivity: "base" }),
+  )
+}
+
+function parseModelNames(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return sortUniqueModelNames(value.map((item) => String(item)))
+  }
+  if (typeof value !== "string") return []
+  return sortUniqueModelNames(value.split(","))
+}
+
+function parseFreeformModelInput(value: string): string[] {
+  return sortUniqueModelNames(value.split(/[,\n]+/))
+}
+
+function splitTemplateModels(template: Record<string, unknown>): {
+  channelModels: string[]
+  hadModelsField: boolean
+  knownModels: string[]
+  template: Record<string, unknown>
+} {
+  const next = cloneJsonObject(template)
+  const channel =
+    next.channel && typeof next.channel === "object" && !Array.isArray(next.channel)
+      ? (next.channel as Record<string, unknown>)
+      : null
+
+  const hadModelsField = channel !== null && "models" in channel
+  const channelModels = parseModelNames(channel?.models)
+  const knownModels = sortUniqueModelNames([
+    ...channelModels,
+    typeof channel?.test_model === "string" ? channel.test_model : "",
+  ])
+
+  if (channel && "models" in channel) {
+    delete channel.models
+  }
+
+  return {
+    channelModels,
+    hadModelsField,
+    knownModels,
+    template: next,
+  }
+}
+
+function withTemplateModels(
+  template: Record<string, unknown>,
+  channelModels: string[],
+): Record<string, unknown> {
+  const next = cloneJsonObject(template)
+  const channel =
+    next.channel && typeof next.channel === "object" && !Array.isArray(next.channel)
+      ? ({ ...(next.channel as Record<string, unknown>) } as Record<string, unknown>)
+      : {}
+  channel.models = sortUniqueModelNames(channelModels).join(",")
+  next.channel = channel
+  return next
+}
+
+function ChannelModelsInput({
+  availableModels,
+  inputValue,
+  onAddInputValue,
+  onInputValueChange,
+  onRemoveModel,
+  onToggleModel,
+  selectedModels,
+}: {
+  availableModels: string[]
+  inputValue: string
+  onAddInputValue: () => void
+  onInputValueChange: (value: string) => void
+  onRemoveModel: (model: string) => void
+  onToggleModel: (model: string) => void
+  selectedModels: string[]
+}) {
+  return (
+    <div className="grid gap-3">
+      <div className="flex items-center justify-between gap-2">
+        <Label>Channel models</Label>
+        <span className="text-muted-foreground text-xs">
+          {selectedModels.length} selected
+        </span>
+      </div>
+      <div className="flex flex-col gap-2 sm:flex-row">
+        <Input
+          value={inputValue}
+          onChange={(e) => onInputValueChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === ",") {
+              e.preventDefault()
+              onAddInputValue()
+            }
+          }}
+          placeholder="Type model names, then press Enter or comma"
+          spellCheck={false}
+        />
+        <Button
+          type="button"
+          variant="secondary"
+          className="sm:self-start"
+          onClick={onAddInputValue}
+          disabled={!inputValue.trim()}
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          Add
+        </Button>
+      </div>
+      <div className="rounded-md border p-3">
+        {selectedModels.length === 0 ? (
+          <p className="text-muted-foreground text-xs">
+            No models selected yet.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {selectedModels.map((model) => (
+              <Badge
+                key={model}
+                variant="secondary"
+                className="h-auto gap-1 px-2 py-1 font-mono text-[11px]"
+              >
+                {model}
+                <button
+                  type="button"
+                  className="inline-flex h-3.5 w-3.5 items-center justify-center rounded-full hover:bg-black/10"
+                  onClick={() => onRemoveModel(model)}
+                  aria-label={`Remove ${model}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </Badge>
+            ))}
+          </div>
+        )}
+      </div>
+      <div className="grid gap-2 rounded-md border p-3">
+        <p className="text-muted-foreground text-xs">
+          Toggle any known model below. New names entered above are added here
+          automatically.
+        </p>
+        {availableModels.length === 0 ? (
+          <p className="text-muted-foreground text-xs">
+            No known models yet.
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {availableModels.map((model) => {
+              const checked = selectedModels.includes(model)
+              return (
+                <label
+                  key={model}
+                  className={cn(
+                    "flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 font-mono text-xs transition-colors",
+                    checked
+                      ? "border-primary bg-primary/5 text-foreground"
+                      : "border-border bg-background text-muted-foreground hover:text-foreground",
+                  )}
+                >
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4"
+                    checked={checked}
+                    onChange={() => onToggleModel(model)}
+                  />
+                  <span>{model}</span>
+                </label>
+              )
+            })}
+          </div>
+        )}
+      </div>
+      <p className="text-muted-foreground text-xs">
+        Saved as a sorted comma-separated string in{" "}
+        <code className="text-xs">template.channel.models</code>.
+      </p>
+    </div>
+  )
 }
 
 function ChannelInspectorDialog({
@@ -203,11 +401,19 @@ export function NewApiPage() {
     min_coupon_balance_for_newapi: 10,
     template_json: DEFAULT_NEWAPI_TEMPLATE_JSON,
   })
+  const [channelModels, setChannelModels] = useState<string[]>([])
+  const [knownModels, setKnownModels] = useState<string[]>([])
+  const [modelInput, setModelInput] = useState("")
 
   useEffect(() => {
     if (!cfgQ.data) return
     const c = cfgQ.data
     const tmpl = c.template
+    const normalizedTemplate =
+      tmpl && typeof tmpl === "object" && !Array.isArray(tmpl) && Object.keys(tmpl).length > 0
+        ? (tmpl as Record<string, unknown>)
+        : cloneJsonObject(DEFAULT_NEWAPI_TEMPLATE)
+    const next = splitTemplateModels(normalizedTemplate)
     setForm({
       base_url: c.base_url,
       admin_token: c.admin_token,
@@ -217,15 +423,64 @@ export function NewApiPage() {
         !Number.isNaN(c.min_coupon_balance_for_newapi)
           ? c.min_coupon_balance_for_newapi
           : 10,
-      template_json: JSON.stringify(
-        tmpl && typeof tmpl === "object" && !Array.isArray(tmpl) && Object.keys(tmpl).length > 0
-          ? tmpl
-          : JSON.parse(DEFAULT_NEWAPI_TEMPLATE_JSON) as Record<string, unknown>,
-        null,
-        2,
-      ),
+      template_json: JSON.stringify(next.template, null, 2),
     })
+    setChannelModels(next.channelModels)
+    setKnownModels((prev) =>
+      sortUniqueModelNames([...prev, ...next.knownModels]),
+    )
+    setModelInput("")
   }, [cfgQ.data])
+
+  function addModels(rawValue: string) {
+    const nextModels = parseFreeformModelInput(rawValue)
+    if (nextModels.length === 0) return
+    setChannelModels((prev) => sortUniqueModelNames([...prev, ...nextModels]))
+    setKnownModels((prev) => sortUniqueModelNames([...prev, ...nextModels]))
+  }
+
+  function commitModelInput() {
+    if (!modelInput.trim()) return
+    addModels(modelInput)
+    setModelInput("")
+  }
+
+  function toggleKnownModel(model: string) {
+    setKnownModels((prev) => sortUniqueModelNames([...prev, model]))
+    setChannelModels((prev) =>
+      prev.includes(model)
+        ? prev.filter((item) => item !== model)
+        : sortUniqueModelNames([...prev, model]),
+    )
+  }
+
+  function removeSelectedModel(model: string) {
+    setChannelModels((prev) => prev.filter((item) => item !== model))
+  }
+
+  function handleTemplateJsonChange(value: string) {
+    let nextValue = value
+    try {
+      const parsed = JSON.parse(value.trim() || "{}")
+      if (
+        parsed !== null &&
+        typeof parsed === "object" &&
+        !Array.isArray(parsed)
+      ) {
+        const next = splitTemplateModels(parsed as Record<string, unknown>)
+        if (next.hadModelsField) {
+          setChannelModels(next.channelModels)
+          setKnownModels((prev) =>
+            sortUniqueModelNames([...prev, ...next.knownModels]),
+          )
+          nextValue = JSON.stringify(next.template, null, 2)
+        }
+      }
+    } catch {
+      // Keep the raw textarea content while the user edits invalid JSON.
+    }
+    setForm((prev) => ({ ...prev, template_json: nextValue }))
+  }
 
   const saveMut = useMutation({
     mutationFn: () => {
@@ -253,6 +508,7 @@ export function NewApiPage() {
           e instanceof Error ? e.message : "Invalid JSON in template"
         throw new Error(msg)
       }
+      const split = splitTemplateModels(template)
       const mb = Number(form.min_coupon_balance_for_newapi)
       const minBal =
         Number.isFinite(mb) && mb >= 0 ? mb : 10
@@ -263,7 +519,10 @@ export function NewApiPage() {
           admin_token: form.admin_token,
           admin_user_id: form.admin_user_id,
           min_coupon_balance_for_newapi: minBal,
-          template,
+          template: withTemplateModels(
+            split.template,
+            split.hadModelsField ? split.channelModels : channelModels,
+          ),
         }),
       })
     },
@@ -475,14 +734,21 @@ export function NewApiPage() {
                     </p>
                   </div>
                   <Separator />
+                  <ChannelModelsInput
+                    availableModels={knownModels}
+                    inputValue={modelInput}
+                    onAddInputValue={commitModelInput}
+                    onInputValueChange={setModelInput}
+                    onRemoveModel={removeSelectedModel}
+                    onToggleModel={toggleKnownModel}
+                    selectedModels={channelModels}
+                  />
                   <div className="grid gap-2">
                     <Label>Channel template (JSON)</Label>
                     <Textarea
                       className="min-h-[min(50vh,420px)] font-mono text-xs"
                       value={form.template_json}
-                      onChange={(e) =>
-                        setForm({ ...form, template_json: e.target.value })
-                      }
+                      onChange={(e) => handleTemplateJsonChange(e.target.value)}
                       spellCheck={false}
                     />
                     <p className="text-muted-foreground text-xs">
@@ -491,12 +757,15 @@ export function NewApiPage() {
                       <code className="text-xs">{"{id}"}</code>) and{" "}
                       <code className="text-xs">channel</code> — the new-api channel{" "}
                       <code className="text-xs">data</code> object (no <code className="text-xs">id</code>
-                      ). Sync overwrites <code className="text-xs">name</code>,{" "}
-                      <code className="text-xs">priority</code>, <code className="text-xs">key</code>,{" "}
-                      <code className="text-xs">remark</code> only. Priority is sequential{" "}
-                      <code className="text-xs">1000</code>, <code className="text-xs">1001</code>, … by
-                      coupon expiry (soonest first, among coupons above min balance), then account
-                      age if no qualifying coupons.
+                      ). <code className="text-xs">channel.models</code> is managed by the selector
+                      above and saved separately as a sorted comma-separated string. If you paste a
+                      full JSON document containing <code className="text-xs">channel.models</code>,
+                      that value is extracted on save. Sync overwrites{" "}
+                      <code className="text-xs">name</code>, <code className="text-xs">priority</code>,{" "}
+                      <code className="text-xs">key</code>, <code className="text-xs">remark</code>{" "}
+                      only. Priority is sequential <code className="text-xs">1000</code>,{" "}
+                      <code className="text-xs">1001</code>, … by coupon expiry (soonest first,
+                      among coupons above min balance), then account age if no qualifying coupons.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">

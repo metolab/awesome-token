@@ -6,7 +6,7 @@ import {
   useReactTable,
 } from "@tanstack/react-table"
 import { Loader2, Pencil, RefreshCw, Trash2 } from "lucide-react"
-import { useEffect, useMemo, useState } from "react"
+import { useCallback, useMemo, useState } from "react"
 import { toast } from "sonner"
 import {
   type AliyunAccount,
@@ -251,29 +251,14 @@ function BillLineCard({ line }: { line: BillLineRow }) {
 
 function AccountBillsDialog({
   account,
-  open,
   onOpenChange,
 }: {
-  account: AliyunAccount | null
-  open: boolean
+  account: AliyunAccount
   onOpenChange: (v: boolean) => void
 }) {
   const [billingCycle, setBillingCycle] = useState(defaultBillingCycle)
   const [page, setPage] = useState(1)
-  const id = account?.id ?? ""
-
-  useEffect(() => {
-    setBillingCycle(defaultBillingCycle())
-    setPage(1)
-  }, [id])
-
-  useEffect(() => {
-    setPage(1)
-  }, [billingCycle])
-
-  useEffect(() => {
-    if (!open) setPage(1)
-  }, [open])
+  const id = account.id
 
   const billQ = useQuery({
     queryKey: ["bss-query-bill", id, billingCycle, page],
@@ -287,7 +272,7 @@ function AccountBillsDialog({
         `/api/aliyun/accounts/${id}/bills?${q}`,
       )
     },
-    enabled: open && !!id,
+    enabled: !!id,
     staleTime: 0,
   })
 
@@ -308,10 +293,10 @@ function AccountBillsDialog({
   }, [billQ.data?.items])
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[85vh] max-w-6xl flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl">
         <DialogHeader className="shrink-0 border-b px-6 py-4">
-          <DialogTitle>Billing — {account?.username ?? ""}</DialogTitle>
+          <DialogTitle>Billing — {account.username}</DialogTitle>
           <p className="text-muted-foreground text-sm font-normal">
             Alibaba Cloud BSS <code className="text-xs">QueryBill</code>（按自然月出账）·
             仅实时查询，不落库
@@ -325,7 +310,10 @@ function AccountBillsDialog({
               id="billing-cycle"
               className="border-input bg-background ring-offset-background focus-visible:ring-ring flex h-9 min-w-[9rem] rounded-md border px-3 py-1 text-sm shadow-sm focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:outline-none"
               value={billingCycle}
-              onChange={(e) => setBillingCycle(e.target.value)}
+              onChange={(e) => {
+                setBillingCycle(e.target.value)
+                setPage(1)
+              }}
             >
               {billingMonthOptions(24).map((m) => (
                 <option key={m} value={m}>
@@ -779,7 +767,7 @@ export function AliyunAccountsPage() {
     onError: (e: Error) => toast.error(e.message),
   })
 
-  const openEditDialog = async (account: AliyunAccount) => {
+  const openEditDialog = useCallback(async (account: AliyunAccount) => {
     setEditLoadingId(account.id)
     try {
       const detail = await apiFetch<AliyunAccountDetail>(
@@ -799,7 +787,7 @@ export function AliyunAccountsPage() {
     } finally {
       setEditLoadingId(null)
     }
-  }
+  }, [])
 
   const syncMut = useMutation({
     mutationFn: (id: string) =>
@@ -1099,13 +1087,15 @@ export function AliyunAccountsPage() {
         </DialogContent>
       </Dialog>
 
-      <AccountBillsDialog
-        account={billingAccount}
-        open={!!billingAccount}
-        onOpenChange={(v) => {
-          if (!v) setBillingAccount(null)
-        }}
-      />
+      {billingAccount ? (
+        <AccountBillsDialog
+          key={billingAccount.id}
+          account={billingAccount}
+          onOpenChange={(v) => {
+            if (!v) setBillingAccount(null)
+          }}
+        />
+      ) : null}
 
       <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
         <AlertDialogContent>
