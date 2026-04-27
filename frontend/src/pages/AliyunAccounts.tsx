@@ -10,6 +10,7 @@ import { useEffect, useMemo, useState } from "react"
 import { toast } from "sonner"
 import {
   type AliyunAccount,
+  type AliyunAccountDetail,
   type BillLineRow,
   type CashCouponSnapshot,
   type OpenApiKeyCreatedResponse,
@@ -714,6 +715,7 @@ export function AliyunAccountsPage() {
   })
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [billingAccount, setBillingAccount] = useState<AliyunAccount | null>(null)
+  const [editLoadingId, setEditLoadingId] = useState<string | null>(null)
 
   const resetForm = () => {
     setForm({
@@ -776,6 +778,28 @@ export function AliyunAccountsPage() {
     },
     onError: (e: Error) => toast.error(e.message),
   })
+
+  const openEditDialog = async (account: AliyunAccount) => {
+    setEditLoadingId(account.id)
+    try {
+      const detail = await apiFetch<AliyunAccountDetail>(
+        `/api/aliyun/accounts/${account.id}`,
+      )
+      setEditing(detail)
+      setForm({
+        username: detail.username,
+        access_key_id: detail.access_key_id,
+        access_key_secret: detail.access_key_secret,
+        bailian_api_key: detail.bailian_api_key,
+        remark: detail.remark,
+      })
+      setOpen(true)
+    } catch (e) {
+      toast.error((e as Error).message)
+    } finally {
+      setEditLoadingId(null)
+    }
+  }
 
   const syncMut = useMutation({
     mutationFn: (id: string) =>
@@ -877,20 +901,14 @@ export function AliyunAccountsPage() {
             <Button
               size="icon"
               variant="ghost"
-              onClick={() => {
-                const a = row.original
-                setEditing(a)
-                setForm({
-                  username: a.username,
-                  access_key_id: "",
-                  access_key_secret: "",
-                  bailian_api_key: "",
-                  remark: a.remark,
-                })
-                setOpen(true)
-              }}
+              disabled={editLoadingId === row.original.id}
+              onClick={() => void openEditDialog(row.original)}
             >
-              <Pencil className="h-4 w-4" />
+              {editLoadingId === row.original.id ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Pencil className="h-4 w-4" />
+              )}
             </Button>
             <Button
               size="icon"
@@ -903,7 +921,7 @@ export function AliyunAccountsPage() {
         ),
       },
     ],
-    [],
+    [editLoadingId, openEditDialog, syncMut],
   )
 
   const table = useReactTable({
@@ -1040,7 +1058,6 @@ export function AliyunAccountsPage() {
               <Label htmlFor="sk">AccessKey secret</Label>
               <Input
                 id="sk"
-                type="password"
                 value={form.access_key_secret}
                 onChange={(e) =>
                   setForm({ ...form, access_key_secret: e.target.value })
@@ -1051,7 +1068,6 @@ export function AliyunAccountsPage() {
               <Label htmlFor="bk">Bailian API key</Label>
               <Input
                 id="bk"
-                type="password"
                 value={form.bailian_api_key}
                 onChange={(e) =>
                   setForm({ ...form, bailian_api_key: e.target.value })

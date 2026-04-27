@@ -38,6 +38,8 @@ class AliyunAccountPublic(BaseModel):
 
 class AliyunAccountDetail(AliyunAccountPublic):
     access_key_id: str
+    access_key_secret: str
+    bailian_api_key: str
     last_transactions: list[dict[str, Any]] = Field(default_factory=list)
 
 

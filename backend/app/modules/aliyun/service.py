@@ -6,7 +6,12 @@ from typing import Any
 
 from app.db.models import AliyunAccountRecord, BalanceSnapshot, CashCouponSnapshot
 from app.modules.aliyun.bss_client import fetch_account_snapshot
-from app.modules.aliyun.schemas import AliyunAccountCreate, AliyunAccountDetail, AliyunAccountPublic, AliyunAccountUpdate
+from app.modules.aliyun.schemas import (
+    AliyunAccountCreate,
+    AliyunAccountDetail,
+    AliyunAccountPublic,
+    AliyunAccountUpdate,
+)
 
 
 def format_sync_error(exc: BaseException, max_len: int = 4000) -> str:
@@ -245,6 +250,8 @@ def detail_from_record(
     return AliyunAccountDetail(
         **base.model_dump(),
         access_key_id=rec.access_key_id,
+        access_key_secret=rec.access_key_secret,
+        bailian_api_key=rec.bailian_api_key,
         last_transactions=rec.last_transactions,
     )
 
