@@ -37,7 +37,6 @@ import {
 } from "@/components/ui/table"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
-import { cn } from "@/lib/utils"
 
 const DEFAULT_NEWAPI_TEMPLATE_JSON = `{
   "name_template": "Aliyun {username}",
@@ -92,7 +91,6 @@ function parseFreeformModelInput(value: string): string[] {
 function splitTemplateModels(template: Record<string, unknown>): {
   channelModels: string[]
   hadModelsField: boolean
-  knownModels: string[]
   template: Record<string, unknown>
 } {
   const next = cloneJsonObject(template)
@@ -103,10 +101,6 @@ function splitTemplateModels(template: Record<string, unknown>): {
 
   const hadModelsField = channel !== null && "models" in channel
   const channelModels = parseModelNames(channel?.models)
-  const knownModels = sortUniqueModelNames([
-    ...channelModels,
-    typeof channel?.test_model === "string" ? channel.test_model : "",
-  ])
 
   if (channel && "models" in channel) {
     delete channel.models
@@ -115,7 +109,6 @@ function splitTemplateModels(template: Record<string, unknown>): {
   return {
     channelModels,
     hadModelsField,
-    knownModels,
     template: next,
   }
 }
@@ -135,20 +128,16 @@ function withTemplateModels(
 }
 
 function ChannelModelsInput({
-  availableModels,
   inputValue,
   onAddInputValue,
   onInputValueChange,
   onRemoveModel,
-  onToggleModel,
   selectedModels,
 }: {
-  availableModels: string[]
   inputValue: string
   onAddInputValue: () => void
   onInputValueChange: (value: string) => void
   onRemoveModel: (model: string) => void
-  onToggleModel: (model: string) => void
   selectedModels: string[]
 }) {
   return (
@@ -207,42 +196,6 @@ function ChannelModelsInput({
                 </button>
               </Badge>
             ))}
-          </div>
-        )}
-      </div>
-      <div className="grid gap-2 rounded-md border p-3">
-        <p className="text-muted-foreground text-xs">
-          Toggle any known model below. New names entered above are added here
-          automatically.
-        </p>
-        {availableModels.length === 0 ? (
-          <p className="text-muted-foreground text-xs">
-            No known models yet.
-          </p>
-        ) : (
-          <div className="flex flex-wrap gap-2">
-            {availableModels.map((model) => {
-              const checked = selectedModels.includes(model)
-              return (
-                <label
-                  key={model}
-                  className={cn(
-                    "flex cursor-pointer items-center gap-2 rounded-md border px-3 py-2 font-mono text-xs transition-colors",
-                    checked
-                      ? "border-primary bg-primary/5 text-foreground"
-                      : "border-border bg-background text-muted-foreground hover:text-foreground",
-                  )}
-                >
-                  <input
-                    type="checkbox"
-                    className="h-4 w-4"
-                    checked={checked}
-                    onChange={() => onToggleModel(model)}
-                  />
-                  <span>{model}</span>
-                </label>
-              )
-            })}
           </div>
         )}
       </div>
@@ -402,7 +355,6 @@ export function NewApiPage() {
     template_json: DEFAULT_NEWAPI_TEMPLATE_JSON,
   })
   const [channelModels, setChannelModels] = useState<string[]>([])
-  const [knownModels, setKnownModels] = useState<string[]>([])
   const [modelInput, setModelInput] = useState("")
 
   useEffect(() => {
@@ -426,9 +378,6 @@ export function NewApiPage() {
       template_json: JSON.stringify(next.template, null, 2),
     })
     setChannelModels(next.channelModels)
-    setKnownModels((prev) =>
-      sortUniqueModelNames([...prev, ...next.knownModels]),
-    )
     setModelInput("")
   }, [cfgQ.data])
 
@@ -436,22 +385,12 @@ export function NewApiPage() {
     const nextModels = parseFreeformModelInput(rawValue)
     if (nextModels.length === 0) return
     setChannelModels((prev) => sortUniqueModelNames([...prev, ...nextModels]))
-    setKnownModels((prev) => sortUniqueModelNames([...prev, ...nextModels]))
   }
 
   function commitModelInput() {
     if (!modelInput.trim()) return
     addModels(modelInput)
     setModelInput("")
-  }
-
-  function toggleKnownModel(model: string) {
-    setKnownModels((prev) => sortUniqueModelNames([...prev, model]))
-    setChannelModels((prev) =>
-      prev.includes(model)
-        ? prev.filter((item) => item !== model)
-        : sortUniqueModelNames([...prev, model]),
-    )
   }
 
   function removeSelectedModel(model: string) {
@@ -470,9 +409,6 @@ export function NewApiPage() {
         const next = splitTemplateModels(parsed as Record<string, unknown>)
         if (next.hadModelsField) {
           setChannelModels(next.channelModels)
-          setKnownModels((prev) =>
-            sortUniqueModelNames([...prev, ...next.knownModels]),
-          )
           nextValue = JSON.stringify(next.template, null, 2)
         }
       }
@@ -735,12 +671,10 @@ export function NewApiPage() {
                   </div>
                   <Separator />
                   <ChannelModelsInput
-                    availableModels={knownModels}
                     inputValue={modelInput}
                     onAddInputValue={commitModelInput}
                     onInputValueChange={setModelInput}
                     onRemoveModel={removeSelectedModel}
-                    onToggleModel={toggleKnownModel}
                     selectedModels={channelModels}
                   />
                   <div className="grid gap-2">

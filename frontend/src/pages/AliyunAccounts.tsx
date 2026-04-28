@@ -13,6 +13,7 @@ import {
   type AliyunAccountDetail,
   type BillLineRow,
   type CashCouponSnapshot,
+  type NewApiConfig,
   type OpenApiKeyCreatedResponse,
   type OpenApiKeyListItem,
   type QueryBillLiveResponse,
@@ -62,6 +63,85 @@ function parseMoney(s: string | null | undefined): number {
   if (s == null || s === "") return 0
   const n = Number.parseFloat(String(s).replace(/,/g, ""))
   return Number.isFinite(n) ? n : 0
+}
+
+function parseTimestamp(iso: string | null | undefined): number | null {
+  if (!iso) return null
+  const t = new Date(iso).getTime()
+  return Number.isNaN(t) ? null : t
+}
+
+function compareNullableTimestampsAsc(
+  a: string | null | undefined,
+  b: string | null | undefined,
+): number {
+  const ta = parseTimestamp(a)
+  const tb = parseTimestamp(b)
+  if (ta == null && tb == null) return 0
+  if (ta == null) return 1
+  if (tb == null) return -1
+  return ta - tb
+}
+
+function sortCouponsByExpiry(
+  coupons: CashCouponSnapshot[] | undefined,
+): CashCouponSnapshot[] {
+  if (!coupons?.length) return []
+  return [...coupons].sort((a, b) => {
+    const byExpiry = compareNullableTimestampsAsc(a.expiry_time, b.expiry_time)
+    if (byExpiry !== 0) return byExpiry
+    const byGranted = compareNullableTimestampsAsc(a.granted_time, b.granted_time)
+    if (byGranted !== 0) return byGranted
+    return String(a.coupon_id ?? "").localeCompare(String(b.coupon_id ?? ""), undefined, {
+      sensitivity: "base",
+    })
+  })
+}
+
+function firstCouponExpiry(coupons: CashCouponSnapshot[] | undefined): string | null {
+  for (const coupon of coupons ?? []) {
+    if (parseTimestamp(coupon.expiry_time) != null) {
+      return coupon.expiry_time ?? null
+    }
+  }
+  return null
+}
+
+function sortAccountsByCouponExpiry(accounts: AliyunAccount[] | undefined): AliyunAccount[] {
+  if (!accounts?.length) return []
+  const normalized = accounts.map((account) => ({
+    ...account,
+    coupons: sortCouponsByExpiry(account.coupons),
+  }))
+  return normalized.sort((a, b) => {
+    const byExpiry = compareNullableTimestampsAsc(
+      firstCouponExpiry(a.coupons),
+      firstCouponExpiry(b.coupons),
+    )
+    if (byExpiry !== 0) return byExpiry
+    const byCreatedAt = compareNullableTimestampsAsc(a.created_at, b.created_at)
+    if (byCreatedAt !== 0) return byCreatedAt
+    return a.username.localeCompare(b.username, undefined, { sensitivity: "base" })
+  })
+}
+
+function couponIsExpired(coupon: CashCouponSnapshot): boolean {
+  return (coupon.status ?? "").trim().toLowerCase() === "expired"
+}
+
+function couponQualifiesForSync(
+  coupon: CashCouponSnapshot,
+  minBalance: number,
+): boolean {
+  if (couponIsExpired(coupon)) return false
+  return parseMoney(coupon.balance) > minBalance
+}
+
+function accountQualifiesForSync(
+  account: AliyunAccount,
+  minBalance: number,
+): boolean {
+  return account.coupons.some((coupon) => couponQualifiesForSync(coupon, minBalance))
 }
 
 /** Sum of remaining balance (free) and sum of nominal face value (total) across all coupons. */
@@ -691,6 +771,17 @@ export function AliyunAccountsPage() {
     queryKey: ["aliyun-accounts"],
     queryFn: () => apiFetch<AliyunAccount[]>("/api/aliyun/accounts/"),
   })
+  const cfgQ = useQuery({
+    queryKey: ["newapi-config"],
+    queryFn: () => apiFetch<NewApiConfig>("/api/newapi/config"),
+  })
+  const accounts = useMemo(() => sortAccountsByCouponExpiry(data), [data])
+  const minCouponBalanceForSync =
+    typeof cfgQ.data?.min_coupon_balance_for_newapi === "number" &&
+    Number.isFinite(cfgQ.data.min_coupon_balance_for_newapi) &&
+    cfgQ.data.min_coupon_balance_for_newapi >= 0
+      ? cfgQ.data.min_coupon_balance_for_newapi
+      : 10
 
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<AliyunAccount | null>(null)
@@ -704,6 +795,25 @@ export function AliyunAccountsPage() {
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [billingAccount, setBillingAccount] = useState<AliyunAccount | null>(null)
   const [editLoadingId, setEditLoadingId] = useState<string | null>(null)
+  const [hideBelowMinCouponBalance, setHideBelowMinCouponBalance] = useState(true)
+
+  const hiddenAccountCount = useMemo(
+    () =>
+      accounts.filter(
+        (account) => !accountQualifiesForSync(account, minCouponBalanceForSync),
+      ).length,
+    [accounts, minCouponBalanceForSync],
+  )
+
+  const visibleAccounts = useMemo(
+    () =>
+      hideBelowMinCouponBalance
+        ? accounts.filter((account) =>
+            accountQualifiesForSync(account, minCouponBalanceForSync),
+          )
+        : accounts,
+    [accounts, hideBelowMinCouponBalance, minCouponBalanceForSync],
+  )
 
   const resetForm = () => {
     setForm({
@@ -824,7 +934,7 @@ export function AliyunAccountsPage() {
           const n = coupons?.length ?? 0
           if (!n) return "—"
           const sums = sumCouponFreeAndTotal(coupons)
-          const firstExpiry = coupons[0]?.expiry_time
+          const firstExpiry = firstCouponExpiry(coupons)
           return (
             <div className="flex flex-col gap-0.5 text-sm leading-tight">
               <span>
@@ -913,7 +1023,7 @@ export function AliyunAccountsPage() {
   )
 
   const table = useReactTable({
-    data: data ?? [],
+    data: visibleAccounts,
     columns,
     getCoreRowModel: getCoreRowModel(),
   })
@@ -945,7 +1055,19 @@ export function AliyunAccountsPage() {
               <CardDescription>
                 Click a row to open bill lines for that account (BSS QueryBill).
               </CardDescription>
-              <div className="flex flex-wrap justify-end gap-2 pt-2">
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-2">
+                <label className="text-muted-foreground flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    className="h-4 w-4 accent-primary"
+                    checked={hideBelowMinCouponBalance}
+                    onChange={(e) => setHideBelowMinCouponBalance(e.target.checked)}
+                  />
+                  <span>
+                    Hide below Min coupon balance for sync (
+                    {hideBelowMinCouponBalance ? hiddenAccountCount : 0})
+                  </span>
+                </label>
                 <Button
                   type="button"
                   onClick={() => {
@@ -983,7 +1105,9 @@ export function AliyunAccountsPage() {
                           colSpan={columns.length}
                           className="text-muted-foreground"
                         >
-                          No accounts yet
+                          {accounts.length === 0
+                            ? "No accounts yet"
+                            : "All accounts are hidden by the min sync balance filter. Clear the checkbox to show all accounts."}
                         </TableCell>
                       </TableRow>
                     ) : (
