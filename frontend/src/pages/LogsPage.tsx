@@ -38,7 +38,7 @@ export function LogsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Application logs</h1>
+      <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Application logs</h1>
       <p className="text-muted-foreground text-sm">
         Tail of the server log file on disk (newest first), up to 2000 lines per request.
       </p>

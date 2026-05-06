@@ -5,7 +5,7 @@ import {
   getCoreRowModel,
   useReactTable,
 } from "@tanstack/react-table"
-import { Loader2, Pencil, RefreshCw, Trash2 } from "lucide-react"
+import { Copy, Loader2, Pencil, RefreshCw, Trash2 } from "lucide-react"
 import { useCallback, useMemo, useState } from "react"
 import { toast } from "sonner"
 import {
@@ -375,7 +375,7 @@ function AccountBillsDialog({
   return (
     <Dialog open onOpenChange={onOpenChange}>
       <DialogContent className="flex max-h-[85vh] max-w-6xl flex-col gap-0 overflow-hidden p-0 sm:max-w-6xl">
-        <DialogHeader className="shrink-0 border-b px-6 py-4">
+        <DialogHeader className="shrink-0 border-b px-4 py-3 sm:px-6 sm:py-4">
           <DialogTitle>Billing — {account.username}</DialogTitle>
           <p className="text-muted-foreground text-sm font-normal">
             Alibaba Cloud BSS <code className="text-xs">QueryBill</code>（按自然月出账）·
@@ -383,7 +383,7 @@ function AccountBillsDialog({
           </p>
         </DialogHeader>
 
-        <div className="flex shrink-0 flex-wrap items-end gap-3 border-b px-6 py-3">
+        <div className="flex shrink-0 flex-wrap items-end gap-3 border-b px-4 py-2 sm:px-6 sm:py-3">
           <div className="grid gap-1.5">
             <Label htmlFor="billing-cycle">Billing month</Label>
             <select
@@ -418,7 +418,7 @@ function AccountBillsDialog({
           </Button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-y-auto px-6 py-4">
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 sm:px-6 sm:py-4">
           {billQ.error && (
             <div className="text-destructive mb-3 text-sm">
               {(billQ.error as Error).message}
@@ -663,7 +663,30 @@ function OpenApiKeysPanel() {
                   data.map((row) => (
                     <TableRow key={row.id}>
                       <TableCell className="font-mono text-xs">
-                        {row.key_prefix}
+                        {row.key_plain ? (
+                          <div className="flex items-center gap-1.5">
+                            <span className="truncate max-w-[16rem]" title={row.key_plain}>
+                              {row.key_plain}
+                            </span>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6 shrink-0"
+                              title="Copy key"
+                              onClick={async (e) => {
+                                e.stopPropagation()
+                                const ok = await copyTextToClipboard(row.key_plain!)
+                                if (ok) toast.success("Copied to clipboard")
+                                else toast.error("Copy failed")
+                              }}
+                            >
+                              <Copy className="h-3.5 w-3.5" />
+                            </Button>
+                          </div>
+                        ) : (
+                          row.key_prefix
+                        )}
                       </TableCell>
                       <TableCell>{row.label || "—"}</TableCell>
                       <TableCell className="text-muted-foreground text-xs">
@@ -984,6 +1007,15 @@ export function AliyunAccountsPage() {
           ),
       },
       {
+        id: "created_at",
+        header: "Added",
+        cell: ({ row }) => (
+          <span className="text-muted-foreground text-xs">
+            {new Date(row.original.created_at).toLocaleDateString()}
+          </span>
+        ),
+      },
+      {
         id: "actions",
         header: "",
         cell: ({ row }) => (
@@ -1038,7 +1070,7 @@ export function AliyunAccountsPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">
+      <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">
         Alibaba Cloud accounts
       </h1>
 

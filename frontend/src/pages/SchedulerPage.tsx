@@ -144,7 +144,7 @@ export function SchedulerPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">Scheduled jobs</h1>
+      <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">Scheduled jobs</h1>
       <p className="text-muted-foreground text-sm">
         Intervals in minutes; 0 disables scheduling for that job. Last 20 runs are kept in memory.
       </p>

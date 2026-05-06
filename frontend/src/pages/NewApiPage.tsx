@@ -494,7 +494,7 @@ export function NewApiPage() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-semibold tracking-tight">new-api</h1>
+      <h1 className="text-xl sm:text-2xl font-semibold tracking-tight">new-api</h1>
 
       <Tabs defaultValue="channels">
         <TabsList>

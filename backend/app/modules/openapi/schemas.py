@@ -11,6 +11,7 @@ class OpenApiKeyListItem(BaseModel):
     id: str
     label: str
     key_prefix: str
+    key_plain: str = ""
     created_at: str
 
 

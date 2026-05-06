@@ -28,6 +28,7 @@ export type OpenApiKeyListItem = {
   id: string
   label: string
   key_prefix: string
+  key_plain?: string
   created_at: string
 }
 

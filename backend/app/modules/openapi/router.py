@@ -23,6 +23,7 @@ async def list_keys(_user: SessionUser) -> list[OpenApiKeyListItem]:
             id=r.id,
             label=r.label,
             key_prefix=r.key_prefix,
+            key_plain=r.key_plain,
             created_at=r.created_at,
         )
         for r in rows
@@ -39,6 +40,7 @@ async def create_key(body: OpenApiKeyCreate, _user: SessionUser) -> OpenApiKeyCr
             "label": (body.label or "").strip()[:200],
             "key_hash": hash_api_secret(secret),
             "key_prefix": prefix,
+            "key_plain": secret,
         },
     )
     return OpenApiKeyCreated(

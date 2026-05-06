@@ -141,6 +141,7 @@ class OpenApiKeyRecord(BaseModel):
     label: str = ""
     key_hash: str
     key_prefix: str
+    key_plain: str = ""
     created_at: str
     updated_at: str
 
