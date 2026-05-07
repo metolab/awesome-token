@@ -118,7 +118,7 @@ export function Layout() {
   )
 
   return (
-    <div className="flex min-h-screen w-full">
+    <div className="flex h-screen w-full overflow-hidden">
       {/* Desktop sidebar */}
       <aside className="hidden md:flex w-56 flex-col border-r border-border bg-sidebar p-3">
         {sidebarContent}
@@ -152,7 +152,7 @@ export function Layout() {
         {sidebarContent}
       </aside>
 
-      <div className="flex flex-1 flex-col min-w-0">
+      <div className="flex flex-1 flex-col min-w-0 overflow-hidden">
         {/* Mobile top bar */}
         <div className="flex items-center gap-2 border-b border-border px-4 py-2 md:hidden">
           <Button
