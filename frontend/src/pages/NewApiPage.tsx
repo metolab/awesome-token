@@ -38,13 +38,12 @@ import {
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
 import { Textarea } from "@/components/ui/textarea"
 
-const DEFAULT_NEWAPI_TEMPLATE_JSON = `{
-  "name_template": "Aliyun {username}",
-  "channel": {}
-}`
-const DEFAULT_NEWAPI_TEMPLATE = JSON.parse(
-  DEFAULT_NEWAPI_TEMPLATE_JSON,
-) as Record<string, unknown>
+const DEFAULT_NEWAPI_TEMPLATES_JSON = `[
+  {
+    "name_template": "Aliyun {username}",
+    "channel": {}
+  }
+]`
 
 function statusLabel(s: number | null | undefined) {
   if (s === 1) return <Badge>Enabled</Badge>
@@ -88,43 +87,72 @@ function parseFreeformModelInput(value: string): string[] {
   return sortUniqueModelNames(value.split(/[,\n]+/))
 }
 
-function splitTemplateModels(template: Record<string, unknown>): {
-  channelModels: string[]
+/**
+ * Extract the shared models list from the first template entry that has channel.models,
+ * and return a cleaned templates array with models removed from every entry's channel.
+ * This mirrors the old splitTemplateModels() but operates on an array.
+ */
+function splitModelsFromTemplates(templates: Record<string, unknown>[]): {
+  models: string[]
   hadModelsField: boolean
-  template: Record<string, unknown>
+  templates: Record<string, unknown>[]
 } {
-  const next = cloneJsonObject(template)
-  const channel =
-    next.channel && typeof next.channel === "object" && !Array.isArray(next.channel)
-      ? (next.channel as Record<string, unknown>)
-      : null
-
-  const hadModelsField = channel !== null && "models" in channel
-  const channelModels = parseModelNames(channel?.models)
-
-  if (channel && "models" in channel) {
-    delete channel.models
-  }
-
-  return {
-    channelModels,
-    hadModelsField,
-    template: next,
-  }
+  let models: string[] = []
+  let hadModelsField = false
+  const cleaned = templates.map((entry) => {
+    const e = cloneJsonObject(entry)
+    const ch =
+      e.channel && typeof e.channel === "object" && !Array.isArray(e.channel)
+        ? (e.channel as Record<string, unknown>)
+        : null
+    if (ch && "models" in ch) {
+      hadModelsField = true
+      if (models.length === 0) {
+        models = parseModelNames(ch.models)
+      }
+      const newCh = { ...ch }
+      delete newCh.models
+      return { ...e, channel: newCh }
+    }
+    return e
+  })
+  return { models, hadModelsField, templates: cleaned }
 }
 
-function withTemplateModels(
-  template: Record<string, unknown>,
+/**
+ * Inject the shared models string into every template entry's channel.models.
+ */
+function injectModelsIntoTemplates(
+  templates: Record<string, unknown>[],
   channelModels: string[],
-): Record<string, unknown> {
-  const next = cloneJsonObject(template)
-  const channel =
-    next.channel && typeof next.channel === "object" && !Array.isArray(next.channel)
-      ? ({ ...(next.channel as Record<string, unknown>) } as Record<string, unknown>)
-      : {}
-  channel.models = sortUniqueModelNames(channelModels).join(",")
-  next.channel = channel
-  return next
+): Record<string, unknown>[] {
+  const modelsStr = sortUniqueModelNames(channelModels).join(",")
+  return templates.map((entry) => {
+    const e = cloneJsonObject(entry)
+    const ch =
+      e.channel && typeof e.channel === "object" && !Array.isArray(e.channel)
+        ? { ...(e.channel as Record<string, unknown>) }
+        : {}
+    ch.models = modelsStr
+    return { ...e, channel: ch }
+  })
+}
+
+/** Normalise the server value for `template` into a JSON array string for the textarea. */
+function normalisedTemplatesWithoutModels(raw: unknown): {
+  json: string
+  models: string[]
+} {
+  let arr: Record<string, unknown>[]
+  if (Array.isArray(raw) && raw.length > 0) {
+    arr = raw as Record<string, unknown>[]
+  } else if (raw && typeof raw === "object" && !Array.isArray(raw)) {
+    arr = [raw as Record<string, unknown>]
+  } else {
+    return { json: DEFAULT_NEWAPI_TEMPLATES_JSON, models: [] }
+  }
+  const { models, templates } = splitModelsFromTemplates(arr)
+  return { json: JSON.stringify(templates, null, 2), models }
 }
 
 function ChannelModelsInput({
@@ -143,7 +171,7 @@ function ChannelModelsInput({
   return (
     <div className="grid gap-3">
       <div className="flex items-center justify-between gap-2">
-        <Label>Channel models</Label>
+        <Label>Channel models (shared across all template entries)</Label>
         <span className="text-muted-foreground text-xs">
           {selectedModels.length} selected
         </span>
@@ -200,8 +228,8 @@ function ChannelModelsInput({
         )}
       </div>
       <p className="text-muted-foreground text-xs">
-        Saved as a sorted comma-separated string in{" "}
-        <code className="text-xs">template.channel.models</code>.
+        Injected as <code className="text-xs">channel.models</code> into every template entry on
+        save. Stored as a sorted comma-separated string.
       </p>
     </div>
   )
@@ -352,7 +380,8 @@ export function NewApiPage() {
     admin_token: "",
     admin_user_id: "",
     min_coupon_balance_for_newapi: 10,
-    template_json: DEFAULT_NEWAPI_TEMPLATE_JSON,
+    max_channels_for_newapi_sync: 5,
+    templates_json: DEFAULT_NEWAPI_TEMPLATES_JSON,
   })
   const [channelModels, setChannelModels] = useState<string[]>([])
   const [modelInput, setModelInput] = useState("")
@@ -360,12 +389,9 @@ export function NewApiPage() {
   useEffect(() => {
     if (!cfgQ.data) return
     const c = cfgQ.data
-    const tmpl = c.template
-    const normalizedTemplate =
-      tmpl && typeof tmpl === "object" && !Array.isArray(tmpl) && Object.keys(tmpl).length > 0
-        ? (tmpl as Record<string, unknown>)
-        : cloneJsonObject(DEFAULT_NEWAPI_TEMPLATE)
-    const next = splitTemplateModels(normalizedTemplate)
+    const { json, models } = normalisedTemplatesWithoutModels(c.template)
+    setChannelModels(models)
+    setModelInput("")
     setForm({
       base_url: c.base_url,
       admin_token: c.admin_token,
@@ -375,10 +401,14 @@ export function NewApiPage() {
         !Number.isNaN(c.min_coupon_balance_for_newapi)
           ? c.min_coupon_balance_for_newapi
           : 10,
-      template_json: JSON.stringify(next.template, null, 2),
+      max_channels_for_newapi_sync:
+        typeof c.max_channels_for_newapi_sync === "number" &&
+        Number.isInteger(c.max_channels_for_newapi_sync) &&
+        c.max_channels_for_newapi_sync >= 1
+          ? c.max_channels_for_newapi_sync
+          : 5,
+      templates_json: json,
     })
-    setChannelModels(next.channelModels)
-    setModelInput("")
   }, [cfgQ.data])
 
   function addModels(rawValue: string) {
@@ -397,57 +427,54 @@ export function NewApiPage() {
     setChannelModels((prev) => prev.filter((item) => item !== model))
   }
 
-  function handleTemplateJsonChange(value: string) {
+  function handleTemplatesJsonChange(value: string) {
     let nextValue = value
     try {
-      const parsed = JSON.parse(value.trim() || "{}")
-      if (
-        parsed !== null &&
-        typeof parsed === "object" &&
-        !Array.isArray(parsed)
-      ) {
-        const next = splitTemplateModels(parsed as Record<string, unknown>)
-        if (next.hadModelsField) {
-          setChannelModels(next.channelModels)
-          nextValue = JSON.stringify(next.template, null, 2)
+      const parsed: unknown = JSON.parse(value.trim() || "[]")
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        const { hadModelsField, models, templates } = splitModelsFromTemplates(
+          parsed as Record<string, unknown>[],
+        )
+        if (hadModelsField) {
+          setChannelModels(models)
+          nextValue = JSON.stringify(templates, null, 2)
         }
       }
     } catch {
       // Keep the raw textarea content while the user edits invalid JSON.
     }
-    setForm((prev) => ({ ...prev, template_json: nextValue }))
+    setForm((prev) => ({ ...prev, templates_json: nextValue }))
   }
 
   const saveMut = useMutation({
     mutationFn: () => {
-      let template: Record<string, unknown>
+      let baseTemplates: Record<string, unknown>[]
       try {
-        const parsed = JSON.parse(form.template_json.trim() || "{}")
-        if (
-          parsed === null ||
-          typeof parsed !== "object" ||
-          Array.isArray(parsed)
-        ) {
-          throw new Error("Template must be a JSON object")
+        const raw = form.templates_json.trim() || "[]"
+        const parsed: unknown = JSON.parse(raw)
+        if (!Array.isArray(parsed)) {
+          throw new Error("Templates must be a JSON array")
         }
-        const ch = parsed.channel
-        if (
-          ch === null ||
-          typeof ch !== "object" ||
-          Array.isArray(ch)
-        ) {
-          throw new Error('Template must include a "channel" object (new-api channel data)')
+        for (let i = 0; i < parsed.length; i++) {
+          const entry = parsed[i]
+          if (entry === null || typeof entry !== "object" || Array.isArray(entry)) {
+            throw new Error(`templates[${i}] must be an object`)
+          }
+          const ch = (entry as Record<string, unknown>).channel
+          if (ch === null || typeof ch !== "object" || Array.isArray(ch)) {
+            throw new Error(
+              `templates[${i}].channel must be an object (new-api channel data)`,
+            )
+          }
         }
-        template = parsed as Record<string, unknown>
+        baseTemplates = parsed as Record<string, unknown>[]
       } catch (e) {
-        const msg =
-          e instanceof Error ? e.message : "Invalid JSON in template"
-        throw new Error(msg)
+        throw new Error(e instanceof Error ? e.message : "Invalid JSON in templates")
       }
-      const split = splitTemplateModels(template)
+      const template = injectModelsIntoTemplates(baseTemplates, channelModels)
       const mb = Number(form.min_coupon_balance_for_newapi)
-      const minBal =
-        Number.isFinite(mb) && mb >= 0 ? mb : 10
+      const minBal = Number.isFinite(mb) && mb >= 0 ? mb : 10
+      const maxCh = Math.max(1, Math.round(Number(form.max_channels_for_newapi_sync)) || 5)
       return apiFetch<NewApiConfig>("/api/newapi/config", {
         method: "PUT",
         body: JSON.stringify({
@@ -455,10 +482,8 @@ export function NewApiPage() {
           admin_token: form.admin_token,
           admin_user_id: form.admin_user_id,
           min_coupon_balance_for_newapi: minBal,
-          template: withTemplateModels(
-            split.template,
-            split.hadModelsField ? split.channelModels : channelModels,
-          ),
+          max_channels_for_newapi_sync: maxCh,
+          template,
         }),
       })
     },
@@ -507,9 +532,9 @@ export function NewApiPage() {
             <CardHeader>
               <CardTitle>Channels</CardTitle>
               <CardDescription>
-                Channels linked to Alibaba Cloud accounts (priorities 1000, 1001, … from coupon
-                expiry and min balance — see Configuration). Use Sync on the Configuration tab to
-                push updates to new-api.
+                Channels linked to Alibaba Cloud accounts. Each eligible account gets one channel
+                per template entry (Template #). Priorities 1000, 1001, … by coupon expiry — see
+                Configuration.
               </CardDescription>
               <div className="flex flex-wrap items-end gap-2 pt-2">
                 <div className="grid gap-1">
@@ -561,6 +586,7 @@ export function NewApiPage() {
                       <TableHead>Name</TableHead>
                       <TableHead>Status</TableHead>
                       <TableHead>Priority</TableHead>
+                      <TableHead>Template #</TableHead>
                       <TableHead>Aliyun</TableHead>
                       <TableHead className="text-right">Actions</TableHead>
                     </TableRow>
@@ -568,18 +594,21 @@ export function NewApiPage() {
                   <TableBody>
                     {(chQ.data ?? []).length === 0 ? (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-muted-foreground">
+                        <TableCell colSpan={7} className="text-muted-foreground">
                           No linked channels. Add Aliyun accounts and configure new-api, or use
                           &quot;Query by channel ID&quot; above.
                         </TableCell>
                       </TableRow>
                     ) : (
                       (chQ.data ?? []).map((row) => (
-                        <TableRow key={row.id}>
+                        <TableRow key={`${row.id}-${row.template_index ?? "x"}`}>
                           <TableCell>{row.id}</TableCell>
                           <TableCell>{row.name}</TableCell>
                           <TableCell>{statusLabel(row.status)}</TableCell>
                           <TableCell>{row.priority ?? "—"}</TableCell>
+                          <TableCell className="font-mono text-xs">
+                            {row.template_index != null ? row.template_index : "—"}
+                          </TableCell>
                           <TableCell className="font-mono text-xs">
                             {row.aliyun_account_id ?? "—"}
                           </TableCell>
@@ -665,8 +694,30 @@ export function NewApiPage() {
                     />
                     <p className="text-muted-foreground text-xs">
                       Aliyun cash coupon balance must be <strong>strictly greater</strong> than this
-                      value (same unit as BSS) for the account to get a new-api channel. Others are
+                      value (same unit as BSS) for the account to get new-api channels. Others are
                       removed on sync.
+                    </p>
+                  </div>
+                  <div className="grid gap-2">
+                    <Label>Max accounts to sync</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      step={1}
+                      className="max-w-xs font-mono text-sm"
+                      value={form.max_channels_for_newapi_sync}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          max_channels_for_newapi_sync:
+                            Math.max(1, Math.round(Number.parseInt(e.target.value, 10) || 5)),
+                        })
+                      }
+                    />
+                    <p className="text-muted-foreground text-xs">
+                      Only the top-N highest-priority eligible accounts (by soonest coupon expiry)
+                      receive new-api channels. Accounts ranked beyond this limit have their
+                      channels removed on sync. Default: <strong>5</strong>.
                     </p>
                   </div>
                   <Separator />
@@ -678,28 +729,28 @@ export function NewApiPage() {
                     selectedModels={channelModels}
                   />
                   <div className="grid gap-2">
-                    <Label>Channel template (JSON)</Label>
+                    <Label>Channel templates (JSON array)</Label>
                     <Textarea
                       className="min-h-[min(50vh,420px)] font-mono text-xs"
-                      value={form.template_json}
-                      onChange={(e) => handleTemplateJsonChange(e.target.value)}
+                      value={form.templates_json}
+                      onChange={(e) => handleTemplatesJsonChange(e.target.value)}
                       spellCheck={false}
                     />
                     <p className="text-muted-foreground text-xs">
-                      Single object: <code className="text-xs">name_template</code> (placeholders{" "}
+                      JSON array of template entries. Each entry has{" "}
+                      <code className="text-xs">name_template</code> (placeholders{" "}
                       <code className="text-xs">{"{username}"}</code>,{" "}
                       <code className="text-xs">{"{id}"}</code>) and{" "}
                       <code className="text-xs">channel</code> — the new-api channel{" "}
-                      <code className="text-xs">data</code> object (no <code className="text-xs">id</code>
-                      ). <code className="text-xs">channel.models</code> is managed by the selector
-                      above and saved separately as a sorted comma-separated string. If you paste a
-                      full JSON document containing <code className="text-xs">channel.models</code>,
-                      that value is extracted on save. Sync overwrites{" "}
-                      <code className="text-xs">name</code>, <code className="text-xs">priority</code>,{" "}
-                      <code className="text-xs">key</code>, <code className="text-xs">remark</code>{" "}
-                      only. Priority is sequential <code className="text-xs">1000</code>,{" "}
-                      <code className="text-xs">1001</code>, … by coupon expiry (soonest first,
-                      among coupons above min balance), then account age if no qualifying coupons.
+                      <code className="text-xs">data</code> object (omit{" "}
+                      <code className="text-xs">id</code> and{" "}
+                      <code className="text-xs">models</code> — managed by the selector above).
+                      Each eligible account receives one channel per array entry. Sync overwrites{" "}
+                      <code className="text-xs">name</code>,{" "}
+                      <code className="text-xs">priority</code>,{" "}
+                      <code className="text-xs">key</code>,{" "}
+                      <code className="text-xs">remark</code>, and{" "}
+                      <code className="text-xs">models</code> only.
                     </p>
                   </div>
                   <div className="flex flex-wrap gap-2">

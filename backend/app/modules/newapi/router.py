@@ -4,15 +4,16 @@ from fastapi import APIRouter, HTTPException
 
 from app.auth.dependencies import SessionUser
 from app.db.store import aliyun_accounts
+from app.modules.newapi.matching import match_all_channel_rows_for_account
 from app.modules.newapi.schemas import ChannelDetailResponse, ChannelRow, NewApiConfigIn, NewApiConfigOut
 from app.modules.newapi.sync_service import (
     fetch_all_channels,
     get_optional_client,
     get_or_create_config,
-    match_channel_row_for_account,
     save_config,
     sync_all_channels,
 )
+
 router = APIRouter(prefix="/api/newapi", tags=["newapi"])
 
 
@@ -58,38 +59,40 @@ async def list_channels(_user: SessionUser) -> list[ChannelRow]:
     channel_rows = await fetch_all_channels(client)
     out: list[ChannelRow] = []
     for acc in accounts:
-        found = match_channel_row_for_account(channel_rows, cfg, acc)
-        if not found or found.get("id") is None:
-            continue
-        try:
-            cid = int(found["id"])
-        except (TypeError, ValueError):
-            continue
-        try:
-            raw = await client.get_channel(cid)
-            data = raw.get("data") if isinstance(raw.get("data"), dict) else raw
-            if not isinstance(data, dict):
-                data = {}
-            out.append(
-                ChannelRow(
-                    id=int(data.get("id", cid)),
-                    name=data.get("name"),
-                    type=data.get("type"),
-                    status=data.get("status"),
-                    priority=data.get("priority"),
-                    models=data.get("models"),
-                    group=data.get("group"),
-                    aliyun_account_id=acc.id,
+        for tpl_idx, found in match_all_channel_rows_for_account(channel_rows, acc):
+            if found.get("id") is None:
+                continue
+            try:
+                cid = int(found["id"])
+            except (TypeError, ValueError):
+                continue
+            try:
+                raw = await client.get_channel(cid)
+                data = raw.get("data") if isinstance(raw.get("data"), dict) else raw
+                if not isinstance(data, dict):
+                    data = {}
+                out.append(
+                    ChannelRow(
+                        id=int(data.get("id", cid)),
+                        name=data.get("name"),
+                        type=data.get("type"),
+                        status=data.get("status"),
+                        priority=data.get("priority"),
+                        models=data.get("models"),
+                        group=data.get("group"),
+                        aliyun_account_id=acc.id,
+                        template_index=tpl_idx,
+                    )
                 )
-            )
-        except Exception:
-            out.append(
-                ChannelRow(
-                    id=cid,
-                    name=found.get("name") or acc.username,
-                    aliyun_account_id=acc.id,
+            except Exception:
+                out.append(
+                    ChannelRow(
+                        id=cid,
+                        name=found.get("name") or acc.username,
+                        aliyun_account_id=acc.id,
+                        template_index=tpl_idx,
+                    )
                 )
-            )
     return out
 
 

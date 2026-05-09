@@ -78,16 +78,22 @@ class AliyunAccountRecord(BaseModel):
 
 
 class NewApiConfigRecord(BaseModel):
-    """new-api admin connection + one channel template."""
+    """new-api admin connection + a list of channel templates.
+
+    Each template entry is ``{ "name_template": "…{username}…", "channel": { … } }``.
+    One new-api channel is created per account per template entry.
+    """
 
     id: str = "singleton"
     base_url: str = ""
     admin_token: str = ""
     admin_user_id: str = ""
-    # Single template: { "name_template": "…{username}…", "channel": { … new-api channel data … } }
-    template: dict[str, Any] = Field(default_factory=dict)
+    # Array of templates: [{ "name_template": "…{username}…", "channel": { … new-api channel data … } }, …]
+    template: list[dict[str, Any]] = Field(default_factory=list)
     # Aliyun cash-coupon balance must be strictly above this to sync a channel (same currency unit as BSS balance).
     min_coupon_balance_for_newapi: float = Field(default=10.0, ge=0)
+    # Only sync the top-N highest-priority eligible accounts; others have their channels removed.
+    max_channels_for_newapi_sync: int = Field(default=5, ge=1)
     created_at: str | None = None
     updated_at: str | None = None
 
@@ -112,7 +118,18 @@ class NewApiConfigRecord(BaseModel):
         )
         if "template" in data:
             cleaned = {k: v for k, v in data.items() if k not in legacy}
-            cleaned["template"] = _normalize_newapi_template(cleaned.get("template"))
+            raw_tpl = cleaned.get("template")
+            if isinstance(raw_tpl, list):
+                # Already a list — normalize each entry individually.
+                cleaned["template"] = [
+                    _normalize_newapi_template(e) if isinstance(e, dict) else e
+                    for e in raw_tpl
+                ]
+            elif isinstance(raw_tpl, dict):
+                # Old single-object format — wrap in a one-element list.
+                cleaned["template"] = [_normalize_newapi_template(raw_tpl)]
+            else:
+                cleaned["template"] = []
             return cleaned
 
         name = data.get("channel_name_template", "Aliyun {username}")
@@ -130,7 +147,7 @@ class NewApiConfigRecord(BaseModel):
                 "test_model": data.get("test_model", "qwen-turbo"),
             }
         cleaned = {k: v for k, v in data.items() if k not in legacy}
-        cleaned["template"] = _normalize_newapi_template({"name_template": name, "channel": ch})
+        cleaned["template"] = [_normalize_newapi_template({"name_template": name, "channel": ch})]
         return cleaned
 
 

@@ -166,15 +166,18 @@ export type QueryBillLiveResponse = {
   request_id?: string | null
 }
 
-/** Admin URL + token + single JSON template: { name_template, channel }. */
+/** Admin URL + token + list of channel templates: [{ name_template, channel }, …]. */
 export type NewApiConfig = {
   id: string
   base_url: string
   admin_token: string
   admin_user_id: string
-  template: Record<string, unknown>
+  /** Array of template entries — each account gets one channel per entry. */
+  template: Record<string, unknown>[]
   /** Coupon balance must be strictly above this (BSS currency) to sync a channel. */
   min_coupon_balance_for_newapi: number
+  /** Only the top-N highest-priority eligible accounts are synced; others have channels removed. */
+  max_channels_for_newapi_sync: number
 }
 
 export type ScheduledJob = {
@@ -208,6 +211,7 @@ export type ChannelRow = {
   models?: string | null
   group?: string | null
   aliyun_account_id?: string | null
+  template_index?: number | null
 }
 
 /** Full JSON from new-api GET /api/channel/{id} (wrapped by backend). */
