@@ -195,18 +195,16 @@ def _extract_channel_id_from_response(resp: dict[str, Any]) -> int | None:
 
 
 def _drop_channel_from_rows(rows: list[dict[str, Any]], channel_id: int) -> None:
-    i = 0
-    while i < len(rows):
-        row = rows[i]
+    for i, row in enumerate(rows):
         if not isinstance(row, dict):
-            i += 1
             continue
         try:
-            if int(row.get("id", -1)) == channel_id:
-                rows.pop(i)
-                return
+            rid = int(row.get("id", -1))
         except (TypeError, ValueError):
-            i += 1
+            continue
+        if rid == channel_id:
+            rows.pop(i)
+            return
 
 
 def _replace_channel_row_in_cache(
