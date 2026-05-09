@@ -43,6 +43,7 @@ from app.modules.newapi.matching import (
     account_and_index_from_remark,
     account_id_from_remark,
     apply_channel_name_template,
+    channel_name_has_at_prefix,
     match_all_channel_rows_for_account,
     match_channel_row_for_account,
     match_channel_row_for_template_entry,
@@ -409,13 +410,56 @@ async def delete_channel_for_account(
     *,
     channel_rows: list[dict[str, Any]] | None = None,
 ) -> None:
-    """Delete ALL channels managed for this account (any template index)."""
+    """Delete ALL channels managed for this account (any template index).
+
+    Collects channels via:
+    1. Remark-based scan (``match_all_channel_rows_for_account``) — covers all indexed and
+       legacy-remark channels.
+    2. Name-based fallback — covers truly legacy channels that pre-date the remark system
+       (``AT-`` prefix + expected name from any template entry).
+    """
     cfg = await get_or_create_config()
     client = get_optional_client(cfg)
     if client is None:
         return
     rows = channel_rows if channel_rows is not None else await fetch_all_channels(client)
+
+    # Collect channels to delete without duplicates.
+    seen_ids: set[int] = set()
+    to_delete: list[tuple[int | None, dict[str, Any]]] = []
+
     for tpl_idx, ch in match_all_channel_rows_for_account(rows, account):
+        try:
+            cid = int(ch["id"])
+        except (TypeError, ValueError, KeyError):
+            continue
+        if cid not in seen_ids:
+            seen_ids.add(cid)
+            to_delete.append((tpl_idx, ch))
+
+    # Name-based fallback for rows that have no remark at all (pre-remark era).
+    templates = cfg.template if isinstance(cfg.template, list) else []
+    for tpl_entry in templates:
+        if not isinstance(tpl_entry, dict):
+            continue
+        name_tpl = str(tpl_entry.get("name_template") or "Aliyun {username}")
+        expected = apply_channel_name_template(name_tpl, account).strip()
+        for ch in rows:
+            if not isinstance(ch, dict):
+                continue
+            if not channel_name_has_at_prefix(ch):
+                continue
+            if str(ch.get("name") or "").strip() != expected:
+                continue
+            try:
+                cid = int(ch["id"])
+            except (TypeError, ValueError, KeyError):
+                continue
+            if cid not in seen_ids:
+                seen_ids.add(cid)
+                to_delete.append((None, ch))
+
+    for tpl_idx, ch in to_delete:
         cid = ch.get("id")
         if cid is None:
             continue

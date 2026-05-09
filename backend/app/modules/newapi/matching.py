@@ -100,19 +100,20 @@ def match_channel_row_for_template_entry(
     """Find the channel for a specific account + template entry index.
 
     Lookup order:
-    1. Exact indexed remark ``awesome-token:{account_id}:{tpl_index}``.
+    1. Structured remark parse: ``awesome-token:{account_id}:{tpl_index}`` (exact match via
+       ``account_and_index_from_remark``; avoids false-positive substring hits).
     2. Legacy remark ``awesome-token:{account_id}`` (no index) — only for *tpl_index* 0,
        to migrate old single-channel rows to the new indexed format.
-    3. ``AT-`` prefix + exact expected name (legacy rows with no remark).
+    3. ``AT-`` prefix + exact expected name (legacy rows with no remark at all).
     """
-    new_token = f"awesome-token:{account.id}:{tpl_index}"
     expected_name = apply_channel_name_template(name_tpl, account).strip()
 
-    # Pass 1: indexed remark
+    # Pass 1: exact indexed remark via structured parse (safe against id-prefix collisions)
     for ch in rows:
         if not isinstance(ch, dict):
             continue
-        if new_token in str(ch.get("remark") or ""):
+        aid, idx = account_and_index_from_remark(ch.get("remark"))
+        if aid == account.id and idx == tpl_index:
             return ch
 
     # Pass 2: legacy remark (no index) matched only for index 0
@@ -124,7 +125,7 @@ def match_channel_row_for_template_entry(
             if aid == account.id and idx is None:
                 return ch
 
-    # Pass 3: AT- prefix + name match
+    # Pass 3: AT- prefix + name match (truly legacy rows with no remark)
     for ch in rows:
         if not isinstance(ch, dict):
             continue
@@ -172,17 +173,18 @@ def match_channel_row_for_account(
 ) -> dict[str, Any] | None:
     """Return the first channel row found for this account (any template index).
 
-    Order: remark contains ``awesome-token:{id}`` first; then AT- prefix + exact name
-    from any configured template entry.
+    Order: structured remark parse (exact account id, avoids id-prefix false positives);
+    then AT- prefix + exact name from any configured template entry.
     """
-    token = f"awesome-token:{account.id}"
-
+    # Pass 1: remark-based via structured parse — safe against account id prefix collisions.
     for ch in rows:
         if not isinstance(ch, dict):
             continue
-        if token in str(ch.get("remark") or ""):
+        aid, _ = account_and_index_from_remark(ch.get("remark"))
+        if aid == account.id:
             return ch
 
+    # Pass 2: name-based fallback for legacy rows with no remark.
     templates = cfg.template if isinstance(cfg.template, list) else []
     for tpl_entry in templates:
         if not isinstance(tpl_entry, dict):
